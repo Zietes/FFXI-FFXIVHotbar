@@ -1,0 +1,14 @@
+# Per-machine settings (window position, visibility)
+data/settings.xml
+
+# Backup directory (per-machine .bak files of edited XIVHotbar2 files)
+data/backups/
+
+# Editor / OS junk
+*.swp
+*.swo
+*~
+*.bak
+Thumbs.db
+Desktop.ini
+.DS_Store
