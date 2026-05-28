@@ -38,43 +38,60 @@ config.save(settings)
 -- ============================================================================
 -- Visual constants (match GSUI / FFXIJSE look)
 -- ============================================================================
-local BORDER       = 3
-local TITLE_BAR_H  = 28
-local PAD          = 8
+local BORDER       = 2
+local TITLE_BAR_H  = 26
+local PAD          = 10
+local GUTTER_W     = 34            -- left column for the "HB n" row labels
+local NUMROW_H     = 16            -- column-number header strip
 local SLOT_W       = 78
-local SLOT_H       = 40
-local SLOT_GAP     = 4
-local PANEL_W      = (SLOT_W + SLOT_GAP) * 12 + BORDER * 2 + PAD * 2
-local PANEL_H      = (SLOT_H + SLOT_GAP) * 3 + BORDER * 2 + TITLE_BAR_H + PAD * 2 + 80
-local FOOTER_H     = 60
+local SLOT_H       = 42
+local SLOT_GAP     = 5
+local GRID_W       = SLOT_W * 12 + SLOT_GAP * 11
+local GRID_H       = SLOT_H * 3 + SLOT_GAP * 2
+local PANEL_W      = BORDER * 2 + PAD * 2 + GUTTER_W + GRID_W
+local BODY_H       = NUMROW_H + GRID_H
+local PANEL_H      = BORDER * 2 + TITLE_BAR_H + PAD * 2 + BODY_H
+local EDIT_H       = 80            -- edit panel height (header + button row + padding)
 local DROPDOWN_W   = 280
 local DROPDOWN_ROW = 18
 local DROPDOWN_MAX = 18
 
--- Color tuples are { alpha, red, green, blue }, alpha 0-255 (255 = fully
--- opaque). The body / slot / dropdown / button backgrounds previously sat
--- at 200-240 (78-94% opacity) which let the game world bleed through the
--- panel — the user could see their character right through the editor.
--- Bumped every panel-style fill to 250 so the addon reads as solid
--- against any background. Text and border alphas left alone.
-local C_BORDER     = { 220, 70,  130, 200 }
-local C_TITLE_BG   = { 250, 30,  60,  120 }
-local C_TITLE_TXT  = { 255, 200, 200, 230 }
-local C_BODY_BG    = { 250, 15,  15,  35  }
-local C_SLOT_EMPTY = { 250, 30,  30,  60  }
-local C_SLOT_FILLED= { 250, 40,  90,  140 }
-local C_SLOT_SEL   = { 250, 100, 200, 100 }
-local C_LABEL_TXT  = { 255, 230, 230, 230 }
-local C_CMD_TXT    = { 255, 180, 200, 240 }
-local C_DROP_BG    = { 250, 20,  30,  60  }
-local C_DROP_ROW_OFF= { 250, 35, 50,  90 }
+-- Color tuples are { alpha, red, green, blue }, alpha 0-255 (255 = opaque).
+-- Panel fills sit at ~250 so the game world doesn't bleed through the editor.
+local C_PANEL_BG   = { 252, 12,  14,  26  }   -- solid base behind everything
+local C_BORDER     = { 255, 90,  150, 220 }   -- accent edge
+local C_TITLE_BG   = { 252, 28,  52,  104 }
+local C_TITLE_TXT  = { 255, 222, 230, 246 }
+local C_BODY_BG    = { 255, 20,  24,  42  }   -- inset behind the grid
+local C_NUM_TXT    = { 230, 150, 165, 200 }   -- column numbers
+local C_HBLBL_TXT  = { 245, 175, 190, 220 }   -- HB row labels
+local C_SLOT_EMPTY = { 250, 28,  32,  54  }
+local C_LABEL_TXT  = { 255, 236, 239, 246 }
+local C_CMD_TXT    = { 225, 200, 210, 235 }
+local C_SEL_RING   = { 255, 255, 214, 92  }   -- bright gold selection outline
+
+-- Filled-slot fills keyed by command type (FFXIV-style category colours).
+local C_CAT_MAGIC  = { 250, 40,  72,  142 }   -- ma   — blue
+local C_CAT_ABILITY= { 250, 124, 92,  30  }   -- ja   — amber
+local C_CAT_WS     = { 250, 134, 50,  50  }   -- ws   — red
+local C_CAT_ITEM   = { 250, 42,  112, 72  }   -- item — green
+local C_CAT_PET    = { 250, 96,  62,  134 }   -- pet  — purple
+local C_CAT_OTHER  = { 250, 58,  64,  92  }   -- macro/input/ct/unknown
+local CAT_COLOR = {
+    ma = C_CAT_MAGIC, ja = C_CAT_ABILITY, ws = C_CAT_WS,
+    item = C_CAT_ITEM, pet = C_CAT_PET,
+}
+
+local C_DROP_BG    = { 252, 18,  26,  50  }
+local C_DROP_ROW_OFF= { 250, 32, 46,  84 }
 local C_DROP_ROW_ON = { 250, 70, 130, 180 }
-local C_DROP_TXT_OFF= { 255, 200, 200, 220 }
+local C_DROP_TXT_OFF= { 255, 206, 212, 228 }
 local C_DROP_TXT_ON = { 255, 255, 255, 255 }
-local C_BTN_SAVE   = { 250, 50,  150, 60 }
-local C_BTN_CANCEL = { 250, 150, 60,  60 }
+local C_BTN_SAVE   = { 250, 50,  150, 60  }
+local C_BTN_CANCEL = { 250, 150, 60,  60  }
+local C_BTN_NEUTRAL= { 250, 48,  66,  104 }   -- Cmd/Action/Target pickers
 local C_BTN_TXT    = { 255, 255, 255, 255 }
-local C_HINT       = { 255, 180, 180, 200 }
+local C_HINT       = { 255, 185, 190, 205 }
 local C_ERROR      = { 255, 240, 140, 140 }
 
 -- ============================================================================
@@ -295,18 +312,22 @@ local function build_window()
 
     local x, y = settings.pos.x, settings.pos.y
     local W = PANEL_W
-    -- Determine height based on whether edit panel is showing
-    local edit_h = (state.selected_id and FOOTER_H + 30) or 0
+    local edit_h = (state.selected_id and state.edit) and EDIT_H or 0
     local H = PANEL_H + edit_h
     state.window_rect = { x = x, y = y, w = W, h = H }
 
-    -- Border + title
-    ui.el.top    = make_bg(x,              y,              W,      BORDER, C_BORDER)
-    ui.el.bottom = make_bg(x,              y + H - BORDER, W,      BORDER, C_BORDER)
-    ui.el.left   = make_bg(x,              y,              BORDER, H,      C_BORDER)
-    ui.el.right  = make_bg(x + W - BORDER, y,              BORDER, H,      C_BORDER)
+    -- Solid base so nothing behind the panel bleeds through.
+    ui.el.panel_bg = make_bg(x, y, W, H, C_PANEL_BG)
+    show(ui.el.panel_bg)
+
+    -- Accent border framing the edges.
+    ui.el.top    = make_bg(x,               y,              W,      BORDER, C_BORDER)
+    ui.el.bottom = make_bg(x,               y + H - BORDER, W,      BORDER, C_BORDER)
+    ui.el.left   = make_bg(x,               y,              BORDER, H,      C_BORDER)
+    ui.el.right  = make_bg(x + W - BORDER,  y,              BORDER, H,      C_BORDER)
     for _, k in ipairs({'top','bottom','left','right'}) do show(ui.el[k]) end
 
+    -- Title bar
     local tb_x = x + BORDER
     local tb_y = y + BORDER
     local tb_w = W - BORDER * 2
@@ -317,68 +338,88 @@ local function build_window()
     local title_text
     if state.file_name then
         local p = windower.ffxi.get_player() or {}
-        title_text = ('FFXI-FFXIVHotbar  —  %s  /  %s'):format(p.main_job or '?', state.file_name)
+        title_text = ('FFXI-FFXIVHotbar    %s  /  %s'):format(p.main_job or '?', state.file_name)
     else
-        title_text = 'FFXI-FFXIVHotbar  —  (no file loaded)'
+        title_text = 'FFXI-FFXIVHotbar    (no file loaded)'
     end
-    ui.el.title = make_text(title_text, tb_x + 8, tb_y + 7, C_TITLE_TXT, 11, true)
+    ui.el.title = make_text(title_text, tb_x + 10, tb_y + 6, C_TITLE_TXT, 11, true)
     show(ui.el.title)
 
-    -- Reload button on the title bar (right side)
-    local rl_w, rl_h = 60, 18
-    local rl_x = tb_x + tb_w - rl_w - 6
-    local rl_y = tb_y + 5
+    -- Reload button (title bar, right side), vertically centred
+    local rl_w, rl_h = 58, 18
+    local rl_x = tb_x + tb_w - rl_w - 8
+    local rl_y = tb_y + (TITLE_BAR_H - rl_h) / 2
     ui.el.reload_bg = make_bg(rl_x, rl_y, rl_w, rl_h, C_BTN_SAVE)
     show(ui.el.reload_bg)
-    ui.el.reload_tx = make_text('Reload', rl_x + 13, rl_y + 2, C_BTN_TXT, 10, true)
+    ui.el.reload_tx = make_text('Reload', rl_x + 11, rl_y + 3, C_BTN_TXT, 10, true)
     show(ui.el.reload_tx)
     ui.rects.reload = { x = rl_x, y = rl_y, w = rl_w, h = rl_h, type = 'reload' }
 
-    -- Body
+    -- Body inset (covers the column header + grid)
     local body_x = tb_x + PAD
     local body_y = tb_y + TITLE_BAR_H + PAD
-    local body_w = tb_w - PAD * 2
-    local body_h = H - BORDER * 2 - TITLE_BAR_H - PAD * 2 - edit_h
-    ui.el.body_bg = make_bg(body_x - PAD/2, body_y - PAD/2, body_w + PAD, body_h + PAD, C_BODY_BG)
+    ui.el.body_bg = make_bg(body_x, body_y, GUTTER_W + GRID_W, BODY_H, C_BODY_BG)
     show(ui.el.body_bg)
 
     -- Error state
     if state.last_error then
-        ui.el.err = make_text(state.last_error, body_x, body_y + 4, C_ERROR, 10)
+        ui.el.err = make_text(state.last_error, body_x + 8, body_y + 8, C_ERROR, 10)
         show(ui.el.err)
         return
     end
 
+    local grid_x0 = body_x + GUTTER_W
+    local grid_y0 = body_y + NUMROW_H
+
+    -- Column-number header (1..12)
+    for sl = 1, 12 do
+        local cx = grid_x0 + (sl - 1) * (SLOT_W + SLOT_GAP)
+        ui.el['num_' .. sl] = make_text(tostring(sl),
+            cx + SLOT_W / 2 - (sl < 10 and 3 or 6), body_y + 1, C_NUM_TXT, 9, false)
+        show(ui.el['num_' .. sl])
+    end
+
     -- 3 × 12 slot grid
     for hb = 1, 3 do
-        local hb_label_y = body_y + (hb - 1) * (SLOT_H + SLOT_GAP)
+        local row_y = grid_y0 + (hb - 1) * (SLOT_H + SLOT_GAP)
+
+        -- HB row label, vertically centred in the gutter
         ui.el['hb_lbl_' .. hb] = make_text('HB ' .. hb,
-            body_x - 4, hb_label_y + 14, C_HINT, 9, true)
+            body_x + 3, row_y + SLOT_H / 2 - 7, C_HBLBL_TXT, 9, true)
         show(ui.el['hb_lbl_' .. hb])
 
         for sl = 1, 12 do
-            local sx = body_x + 22 + (sl - 1) * (SLOT_W + SLOT_GAP)
-            local sy = hb_label_y
+            local sx = grid_x0 + (sl - 1) * (SLOT_W + SLOT_GAP)
+            local sy = row_y
             local slot_id = ('battle %d %d'):format(hb, sl)
             local rec = state.grid and state.grid[hb] and state.grid[hb][sl] or nil
             local empty = (not rec) or rec.commented or
                 ((rec.cmd or '') == '' and (rec.action or '') == '')
-            local col = empty and C_SLOT_EMPTY or C_SLOT_FILLED
-            if state.selected_id == slot_id then col = C_SLOT_SEL end
 
+            -- Selection ring: drawn slightly larger and BEHIND the slot fill
+            -- so a 2px gold outline shows around the selected slot.
+            if state.selected_id == slot_id then
+                ui.el.sel_ring = make_bg(sx - 2, sy - 2, SLOT_W + 4, SLOT_H + 4, C_SEL_RING)
+                show(ui.el.sel_ring)
+            end
+
+            local col = empty and C_SLOT_EMPTY or (CAT_COLOR[rec.cmd] or C_CAT_OTHER)
             local bg = make_bg(sx, sy, SLOT_W, SLOT_H, col)
             show(bg)
 
-            local label = (rec and rec.label ~= '' and rec.label) or
-                          (rec and rec.action ~= '' and rec.action:sub(1, 9)) or
-                          '—'
-            local cmd_tag = rec and rec.cmd ~= '' and rec.cmd or '·'
-            local name_tx = make_text(label:sub(1, 11), sx + 4, sy + 4, C_LABEL_TXT, 9, true)
-            show(name_tx)
-            local cmd_tx = make_text(cmd_tag, sx + 4, sy + SLOT_H - 14, C_CMD_TXT, 8)
-            show(cmd_tx)
+            if not empty then
+                local label = (rec.label ~= '' and rec.label)
+                           or (rec.action ~= '' and rec.action) or '—'
+                local name_tx = make_text(label:sub(1, 10), sx + 6, sy + 6, C_LABEL_TXT, 9, true)
+                show(name_tx)
+                local cmd_tx = make_text(rec.cmd ~= '' and rec.cmd or '·',
+                    sx + 6, sy + SLOT_H - 14, C_CMD_TXT, 8, false)
+                show(cmd_tx)
+                ui.slots[slot_id] = { bg = bg, name = name_tx, cmd = cmd_tx }
+            else
+                ui.slots[slot_id] = { bg = bg }
+            end
 
-            ui.slots[slot_id] = { bg = bg, name = name_tx, cmd = cmd_tx }
             ui.rects['slot_' .. slot_id] = {
                 x = sx, y = sy, w = SLOT_W, h = SLOT_H,
                 type = 'slot', slot_id = slot_id,
@@ -389,30 +430,38 @@ local function build_window()
     -- Edit panel (only when a slot is selected)
     if state.selected_id and state.edit then
         local ex = body_x
-        local ey = body_y + body_h + 4
-        local edit_text = ('Editing %s  ·  cmd=[%s]  action=[%s]  target=[%s]  label=[%s]')
-            :format(state.selected_id, state.edit.cmd, state.edit.action,
-                    state.edit.target, state.edit.label or '')
-        ui.el.edit_hdr = make_text(edit_text, ex, ey, C_LABEL_TXT, 10, true)
+        local ey = body_y + BODY_H + PAD
+        local e  = state.edit
+
+        ui.el.edit_bg = make_bg(ex, ey, GUTTER_W + GRID_W, EDIT_H - PAD, C_BODY_BG)
+        show(ui.el.edit_bg)
+
+        ui.el.edit_hdr = make_text(('Editing  %s'):format(state.selected_id),
+            ex + 8, ey + 7, C_HINT, 10, true)
         show(ui.el.edit_hdr)
 
-        -- Dropdowns + save/cancel buttons
-        local btn_y = ey + 22
-        local btn_h = 22
-        local btn_w = 80
+        local prev = ('cmd [%s]    action [%s]    target [%s]'):format(
+            e.cmd ~= ''    and e.cmd    or '–',
+            e.action ~= '' and e.action or '–',
+            e.target ~= '' and e.target or '–')
+        ui.el.edit_prev = make_text(prev, ex + 210, ey + 7, C_LABEL_TXT, 10, false)
+        show(ui.el.edit_prev)
+
+        -- Picker dropdowns + action buttons
+        local btn_y = ey + 30
+        local btn_h, btn_w = 24, 86
         local btns = {
-            { name = 'pick_cmd',    label = 'Cmd ▾',    x = ex,           type = 'pick_cmd'    },
-            { name = 'pick_action', label = 'Action ▾', x = ex +  85,     type = 'pick_action' },
-            { name = 'pick_target', label = 'Target ▾', x = ex + 230,     type = 'pick_target' },
-            { name = 'save',        label = 'Save',     x = ex + 380,     type = 'save'        , color = C_BTN_SAVE },
-            { name = 'cancel',      label = 'Cancel',   x = ex + 470,     type = 'cancel'      , color = C_BTN_CANCEL },
-            { name = 'clear',       label = 'Clear',    x = ex + 560,     type = 'clear'       , color = C_BTN_CANCEL },
+            { name = 'pick_cmd',    label = 'Cmd  ▾',   x = ex + 8,       type = 'pick_cmd',    color = C_BTN_NEUTRAL },
+            { name = 'pick_action', label = 'Action ▾', x = ex + 8 + 96,  type = 'pick_action', color = C_BTN_NEUTRAL },
+            { name = 'pick_target', label = 'Target ▾', x = ex + 8 + 192, type = 'pick_target', color = C_BTN_NEUTRAL },
+            { name = 'save',        label = 'Save',     x = ex + 8 + 312, type = 'save',        color = C_BTN_SAVE   },
+            { name = 'cancel',      label = 'Cancel',   x = ex + 8 + 404, type = 'cancel',      color = C_BTN_CANCEL },
+            { name = 'clear',       label = 'Clear',    x = ex + 8 + 496, type = 'clear',       color = C_BTN_CANCEL },
         }
         for _, b in ipairs(btns) do
-            local col = b.color or C_DROP_ROW_OFF
-            local bg = make_bg(b.x, btn_y, btn_w, btn_h, col)
+            local bg = make_bg(b.x, btn_y, btn_w, btn_h, b.color)
             show(bg)
-            local tx = make_text(b.label, b.x + 6, btn_y + 4, C_BTN_TXT, 10, true)
+            local tx = make_text(b.label, b.x + 8, btn_y + 5, C_BTN_TXT, 10, true)
             show(tx)
             ui.el['btn_bg_' .. b.name] = bg
             ui.el['btn_tx_' .. b.name] = tx
