@@ -85,18 +85,30 @@ function actions.list_spells()
     local out = {}
     local player = windower.ffxi.get_player()
     if not player then return out end
+    -- Only spells the CURRENT main/sub job can actually cast. get_spells()
+    -- returns every spell the player has ever learned on any job, so without
+    -- this filter a GEO would see DRK Absorb spells, etc. res.spells[id].levels
+    -- maps job_id -> the level at which that job learns the spell.
+    local main_id, main_lv = player.main_job_id, player.main_job_level or 99
+    local sub_id,  sub_lv  = player.sub_job_id,  player.sub_job_level  or 0
     local known = windower.ffxi.get_spells() or {}
     for id, is_known in pairs(known) do
         if is_known == true then
             local s = res.spells[id]
             if s and s.en and s.type and s.type ~= 'Trust' then
-                table.insert(out, {
-                    cmd = 'ma',
-                    action = s.en,
-                    default_target = infer_default_target(s.targets),
-                    label = s.en:sub(1, 8),    -- short text shown on the slot
-                    category = 'Magic',
-                })
+                local levels = s.levels or {}
+                local lv_main = main_id and levels[main_id]
+                local lv_sub  = sub_id  and levels[sub_id]
+                if (lv_main and main_lv >= lv_main) or
+                   (lv_sub  and sub_lv  >= lv_sub) then
+                    table.insert(out, {
+                        cmd = 'ma',
+                        action = s.en,
+                        default_target = infer_default_target(s.targets),
+                        label = s.en:sub(1, 8),    -- short text shown on the slot
+                        category = 'Magic',
+                    })
+                end
             end
         end
     end
@@ -109,26 +121,23 @@ end
 -- ============================================================================
 function actions.list_abilities()
     local out = {}
-    local player = windower.ffxi.get_player()
-    if not player then return out end
-    local main_id, main_lv = player.main_job_id, player.main_job_level or 99
-    local sub_id,  sub_lv  = player.sub_job_id,  player.sub_job_level  or 0
-
-    for _, a in pairs(res.job_abilities) do
-        if a.en and a.type ~= 'Monster' then
-            local levels = a.levels or {}
-            local lv_main = levels[main_id]
-            local lv_sub  = levels[sub_id]
-            if (lv_main and main_lv >= lv_main) or
-               (lv_sub  and sub_lv  >= lv_sub) then
-                table.insert(out, {
-                    cmd = 'ja',
-                    action = a.en,
-                    default_target = infer_default_target(a.targets),
-                    label = a.en:sub(1, 8),
-                    category = 'Ability',
-                })
-            end
+    -- get_abilities() returns exactly what the current job/subjob can use
+    -- right now — it accounts for level, merits and unlocked flags — so we
+    -- don't have to re-derive availability from res.job_abilities level tables.
+    local avail = windower.ffxi.get_abilities()
+    if not avail or not avail.job_abilities then return out end
+    local seen = {}
+    for _, id in pairs(avail.job_abilities) do
+        local a = res.job_abilities[id]
+        if a and a.en and a.type ~= 'Monster' and not seen[a.en] then
+            seen[a.en] = true
+            table.insert(out, {
+                cmd = 'ja',
+                action = a.en,
+                default_target = infer_default_target(a.targets),
+                label = a.en:sub(1, 8),
+                category = 'Ability',
+            })
         end
     end
     table.sort(out, function(a, b) return a.action < b.action end)
@@ -142,10 +151,16 @@ end
 -- ============================================================================
 function actions.list_weaponskills()
     local out = {}
-    local player = windower.ffxi.get_player()
-    if not player then return out end
-    for _, ws in pairs(res.weapon_skills) do
-        if ws.en and ws.type ~= 'BloodPactPhysical' and ws.type ~= 'BloodPactMagical' then
+    -- Weapon skills from get_abilities() are the ones usable with the
+    -- currently equipped weapon at the player's skill level, which is far
+    -- more useful than listing every WS in the resources.
+    local avail = windower.ffxi.get_abilities()
+    if not avail or not avail.weapon_skills then return out end
+    local seen = {}
+    for _, id in pairs(avail.weapon_skills) do
+        local ws = res.weapon_skills[id]
+        if ws and ws.en and not seen[ws.en] then
+            seen[ws.en] = true
             table.insert(out, {
                 cmd = 'ws',
                 action = ws.en,

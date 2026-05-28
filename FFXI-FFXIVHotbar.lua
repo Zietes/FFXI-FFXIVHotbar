@@ -100,6 +100,8 @@ local state = {
     dragging      = false,
     drag_dx       = 0,
     drag_dy       = 0,
+    window_rect   = nil,        -- full panel bounds (for blocking mouse pass-through)
+    dropdown_rect = nil,        -- open dropdown bounds
 }
 
 -- ============================================================================
@@ -179,12 +181,15 @@ local function destroy_window()
     for _, e in pairs(ui.el) do destroy(e) end
     ui.el = {}
     ui.rects = {}
+    state.window_rect = nil
+    state.dropdown_rect = nil
 end
 
 local function build_dropdown()
     -- Tear down any existing dropdown
     for _, e in pairs(ui.drop) do destroy(e) end
     ui.drop = {}
+    state.dropdown_rect = nil
     if not state.picker then return end
 
     local items
@@ -216,10 +221,36 @@ local function build_dropdown()
         items = {}
     end
 
-    local dx = settings.pos.x + 30
-    local dy = settings.pos.y + 200
+    -- Anchor the dropdown directly under the picker button that opened it so
+    -- it never draws on top of the edit panel/header (the old fixed offset of
+    -- pos.y + 200 landed right on the edit controls). Fall back to that offset
+    -- if the button rect isn't available yet.
+    local anchor
+    if state.picker == 'cmd'        then anchor = ui.rects.btn_pick_cmd
+    elseif state.picker == 'action' then anchor = ui.rects.btn_pick_action
+    elseif state.picker == 'target' then anchor = ui.rects.btn_pick_target end
+
     local h = math.min(#items, DROPDOWN_MAX) * DROPDOWN_ROW + 4
     if h < 24 then h = 24 end
+
+    local dx, dy
+    if anchor then
+        dx = anchor.x
+        dy = anchor.y + anchor.h + 2
+        -- Flip above the button if the list would run off the bottom edge.
+        local screen_h = 0
+        if windower.get_windower_settings then
+            local wsettings = windower.get_windower_settings()
+            screen_h = wsettings and (wsettings.ui_y_res or wsettings.y_res) or 0
+        end
+        if screen_h > 0 and dy + h > screen_h then
+            dy = math.max(0, anchor.y - h - 2)
+        end
+    else
+        dx = settings.pos.x + 30
+        dy = settings.pos.y + 200
+    end
+    state.dropdown_rect = { x = dx, y = dy, w = DROPDOWN_W, h = h }
     ui.drop.bg = make_bg(dx, dy, DROPDOWN_W, h, C_DROP_BG)
     show(ui.drop.bg)
 
@@ -256,6 +287,7 @@ local function build_window()
     -- Determine height based on whether edit panel is showing
     local edit_h = (state.selected_id and FOOTER_H + 30) or 0
     local H = PANEL_H + edit_h
+    state.window_rect = { x = x, y = y, w = W, h = H }
 
     -- Border + title
     ui.el.top    = make_bg(x,              y,              W,      BORDER, C_BORDER)
@@ -436,9 +468,18 @@ local function in_rect(x, y, r)
     return r and x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h
 end
 
+-- Is the cursor over any part of the editor (panel body or an open dropdown)?
+-- Used to swallow ALL mouse events there so clicks/drags don't fall through to
+-- the game world and spin the camera or change the target.
+local function point_in_window(x, y)
+    return in_rect(x, y, state.window_rect) or in_rect(x, y, state.dropdown_rect)
+end
+
 windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     if not settings.visible then return false end
     if blocked then return false end
+
+    local over = point_in_window(x, y)
 
     -- Window drag via title bar
     if state.dragging then
@@ -549,7 +590,9 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
         end
     end
 
-    return false
+    -- Swallow every remaining event (move, button up/down, right-click, scroll)
+    -- that happens over the panel so it can't reach the game and move the camera.
+    return over
 end)
 
 -- ============================================================================
