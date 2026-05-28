@@ -56,6 +56,30 @@ slots show a `—`.
 
 Drag the window by its title bar. Position persists across reloads.
 
+### Macros
+
+For slots whose **Cmd** is `macro`, the Action picker lists your own
+reusable macros instead of game actions. These live in a plain-text file
+you edit in any text editor:
+
+```
+FFXI-FFXIVHotbar/data/macros.txt
+```
+
+One macro per line, `Name = command body`. Lines starting with `#` or
+`--` are comments. Multi-step macros separate commands the way XIVHotbar2
+expects (`;`):
+
+```
+Sneak = /ma "Sneak" <me>
+Pull  = /p Pulling <t> ; /ws "Combo" <t>
+```
+
+Run `//xh macros` to see the file path and everything currently defined.
+After editing the file, pick `macro` as the Cmd, open the Action picker,
+and choose your macro by name — its body goes into the slot and its name
+becomes the slot label.
+
 ## Commands
 
 | Command | What |
@@ -64,6 +88,7 @@ Drag the window by its title bar. Position persists across reloads.
 | `//xh show` / `//xh hide` | Explicit show/hide |
 | `//xh reload` | Re-read the keybind file from disk |
 | `//xh where` | Show the file paths the locator is trying |
+| `//xh macros` | Show the macro library and its file path |
 | `//xh help` | Command list |
 
 ## Visual style

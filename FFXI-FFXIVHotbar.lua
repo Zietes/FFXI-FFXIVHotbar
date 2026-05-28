@@ -24,6 +24,7 @@ local parser   = require('libs/parser')
 local writer   = require('libs/writer')
 local locator  = require('libs/locator')
 local actions  = require('libs/actions')
+local macros   = require('libs/macros')
 
 -- ============================================================================
 -- Settings
@@ -226,23 +227,41 @@ local function build_dropdown()
         -- abilities rather than every spell/WS/item. With no Cmd set yet, show
         -- everything (and the pick will fill Cmd in from the action's cmd_hint).
         local cmd = state.edit and state.edit.cmd or ''
-        local raw
-        if     cmd == 'ma'   then raw = actions.list_spells()
-        elseif cmd == 'ja'   then raw = actions.list_abilities()
-        elseif cmd == 'ws'   then raw = actions.list_weaponskills()
-        elseif cmd == 'item' then raw = actions.list_items()
-        else                      raw = actions.list_all()
-        end
         local filt = (state.picker_filter or ''):lower()
         items = {}
-        for _, a in ipairs(raw) do
-            if filt == '' or a.action:lower():find(filt, 1, true) then
-                table.insert(items, {
-                    display = a.category:sub(1, 4) .. '  ' .. a.action,
-                    value   = a.action,
-                    cmd_hint = a.cmd,
-                    target_hint = a.default_target,
-                })
+        if cmd == 'macro' then
+            -- Macros come from the user's data/macros.txt library, not the
+            -- game resources. The macro body goes into `action`; its name
+            -- becomes the slot label.
+            for _, m in ipairs(macros.list()) do
+                if filt == '' or m.name:lower():find(filt, 1, true) then
+                    table.insert(items, {
+                        display     = 'Macro  ' .. m.name,
+                        value       = m.body,
+                        cmd_hint    = 'macro',
+                        target_hint = '',
+                        label_hint  = m.name:sub(1, 8),
+                    })
+                end
+            end
+        else
+            local raw
+            if     cmd == 'ma'   then raw = actions.list_spells()
+            elseif cmd == 'ja'   then raw = actions.list_abilities()
+            elseif cmd == 'ws'   then raw = actions.list_weaponskills()
+            elseif cmd == 'item' then raw = actions.list_items()
+            else                      raw = actions.list_all()
+            end
+            for _, a in ipairs(raw) do
+                if filt == '' or a.action:lower():find(filt, 1, true) then
+                    table.insert(items, {
+                        display     = a.category:sub(1, 4) .. '  ' .. a.action,
+                        value       = a.action,
+                        cmd_hint    = a.cmd,
+                        target_hint = a.default_target,
+                        label_hint  = a.label,
+                    })
+                end
             end
         end
     else
@@ -286,7 +305,11 @@ local function build_dropdown()
     local first = math.floor(state.picker_scroll / DROPDOWN_ROW) + 1
     local last  = math.min(#items, first + DROPDOWN_MAX - 1)
     if #items == 0 then
-        ui.drop.empty = make_text('(no matches)', dx + 6, dy + 4, C_HINT, 10)
+        local msg = '(no matches)'
+        if state.picker == 'action' and state.edit and state.edit.cmd == 'macro' then
+            msg = '(no macros — edit data/macros.txt, see //xh macros)'
+        end
+        ui.drop.empty = make_text(msg, dx + 6, dy + 4, C_HINT, 10)
         show(ui.drop.empty)
         return
     end
@@ -580,7 +603,7 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
                         state.edit.action = r.item.value
                         if r.item.cmd_hint    then state.edit.cmd    = r.item.cmd_hint    end
                         if r.item.target_hint then state.edit.target = r.item.target_hint end
-                        state.edit.label = r.item.value:sub(1, 8)
+                        state.edit.label = r.item.label_hint or r.item.value:sub(1, 8)
                     end
                     state.picker = nil
                     state.picker_scroll = 0
@@ -714,11 +737,21 @@ windower.register_event('addon command', function(...)
                 windower.add_to_chat(160, '  ' .. (c.exists and '✓' or '✗') .. '  ' .. c.path)
             end
         end
+    elseif cmd == 'macros' then
+        local path = macros.ensure()
+        local list = macros.list()
+        windower.add_to_chat(207, 'FFXI-FFXIVHotbar: macro library (' .. #list .. ' defined)')
+        windower.add_to_chat(160, '  file: ' .. path)
+        windower.add_to_chat(160, '  edit it in a text editor (Name = command body), then //xh reload')
+        for _, m in ipairs(list) do
+            windower.add_to_chat(160, '    ' .. m.name .. '  =  ' .. m.body)
+        end
     elseif cmd == 'help' or cmd == '?' then
         windower.add_to_chat(207, 'FFXI-FFXIVHotbar commands:')
         windower.add_to_chat(160, '  //xh           — toggle window (also: H key)')
         windower.add_to_chat(160, '  //xh reload    — re-read the keybind file from disk')
         windower.add_to_chat(160, '  //xh where     — show candidate file paths it tries')
+        windower.add_to_chat(160, '  //xh macros    — show the macro library + its file path')
     else
         windower.add_to_chat(167, 'FFXI-FFXIVHotbar: unknown command "' .. cmd .. '"')
     end
@@ -743,6 +776,7 @@ windower.register_event('job change', function()
 end)
 
 windower.register_event('load', function()
+    macros.ensure()   -- make sure data/macros.txt exists for the user to edit
     coroutine.schedule(function()
         if windower.ffxi.get_info().logged_in then
             reload_file()
