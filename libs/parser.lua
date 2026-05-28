@@ -102,18 +102,28 @@ function parser.parse(src)
                     local slot_id = fields[1] or ''
                     local hb, sl = slot_id:match('^battle%s+(%d+)%s+(%d+)$')
                     if hb and sl then
-                        slots[slot_id] = {
-                            hotbar    = tonumber(hb),
-                            slot      = tonumber(sl),
-                            slot_id   = slot_id,
-                            cmd       = fields[2] or '',
-                            action    = fields[3] or '',
-                            target    = fields[4] or '',
-                            label     = fields[5] or '',
-                            type_hint = fields[6] or '',
-                            commented = commented,
-                            line      = line_num,
-                        }
+                        -- A slot_id can appear more than once: the live entry
+                        -- in the main table, plus commented-out duplicates
+                        -- elsewhere (a disabled SUB-job block at the bottom of
+                        -- the file often re-lists 'battle 2 1'.. as comments).
+                        -- Keep the first ACTIVE entry and never let a later
+                        -- commented duplicate clobber it — otherwise real
+                        -- bindings (e.g. all of hotbar 2) vanish from the grid.
+                        local existing = slots[slot_id]
+                        if (not existing) or (existing.commented and not commented) then
+                            slots[slot_id] = {
+                                hotbar    = tonumber(hb),
+                                slot      = tonumber(sl),
+                                slot_id   = slot_id,
+                                cmd       = fields[2] or '',
+                                action    = fields[3] or '',
+                                target    = fields[4] or '',
+                                label     = fields[5] or '',
+                                type_hint = fields[6] or '',
+                                commented = commented,
+                                line      = line_num,
+                            }
+                        end
                     end
                 end
             end
