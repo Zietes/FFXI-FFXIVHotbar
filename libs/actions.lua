@@ -163,6 +163,24 @@ end
 -- Items — only those that are usable (have an on-use effect / activate
 -- flag), pulled from the player's actual bags.
 -- ============================================================================
+
+-- Current Windower exposes res.items[id].flags as a structured flag
+-- table (named bitflags) rather than a raw number, so bit.band on it
+-- throws "number expected, got table". Handle both shapes, and fall
+-- back to cast_time (only usable items have one) so the filter still
+-- works if the flag layout changes again.
+local function is_usable_item(def)
+    local f = def.flags
+    if type(f) == 'number' then
+        return bit.band(f, 0x0200) ~= 0
+    end
+    if type(f) == 'table' then
+        if f['Can Use'] or f.CanUse or f.can_use then return true end
+        if f['Activatable'] or f.activatable then return true end
+    end
+    return def.cast_time ~= nil and def.cast_time > 0
+end
+
 function actions.list_items()
     local out = {}
     local items = windower.ffxi.get_items()
@@ -178,11 +196,8 @@ function actions.list_items()
                 local it = bag[slot]
                 if it and type(it) == 'table' and it.id and it.id ~= 0 then
                     local def = res.items[it.id]
-                    -- Activate-able items have non-zero "activate_ability"
-                    -- bit in flags (0x0200 = "Can use"). Best-effort filter.
-                    if def and def.en and not seen[def.en] and def.flags then
-                        local usable = bit.band(def.flags or 0, 0x0200) ~= 0
-                        if usable then
+                    if def and def.en and not seen[def.en] then
+                        if is_usable_item(def) then
                             seen[def.en] = true
                             table.insert(out, {
                                 cmd = 'item',
