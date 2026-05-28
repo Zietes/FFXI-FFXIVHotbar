@@ -100,6 +100,7 @@ local state = {
     dragging      = false,
     drag_dx       = 0,
     drag_dy       = 0,
+    mouse_captured= false,      -- a press started over our UI; swallow until release
     window_rect   = nil,        -- full panel bounds (for blocking mouse pass-through)
     dropdown_rect = nil,        -- open dropdown bounds
 }
@@ -204,7 +205,17 @@ local function build_dropdown()
             table.insert(items, { display = t, value = t })
         end
     elseif state.picker == 'action' then
-        local raw = actions.list_all()
+        -- Only list actions matching the chosen Cmd, so a 'ja' slot shows job
+        -- abilities rather than every spell/WS/item. With no Cmd set yet, show
+        -- everything (and the pick will fill Cmd in from the action's cmd_hint).
+        local cmd = state.edit and state.edit.cmd or ''
+        local raw
+        if     cmd == 'ma'   then raw = actions.list_spells()
+        elseif cmd == 'ja'   then raw = actions.list_abilities()
+        elseif cmd == 'ws'   then raw = actions.list_weaponskills()
+        elseif cmd == 'item' then raw = actions.list_items()
+        else                      raw = actions.list_all()
+        end
         local filt = (state.picker_filter or ''):lower()
         items = {}
         for _, a in ipairs(raw) do
@@ -481,6 +492,15 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
 
     local over = point_in_window(x, y)
 
+    -- Capture a press that begins over our UI so the whole press→release (and
+    -- any movement in between) is swallowed and never reaches the game's camera
+    -- control. Without this, a pick applied on button-DOWN closes the dropdown,
+    -- so the matching button-UP lands on empty space, falls through, and spins
+    -- the camera. Recomputed on every press so a press outside clears it.
+    if mtype == 1 or mtype == 3 then    -- left/right button down
+        state.mouse_captured = over
+    end
+
     -- Window drag via title bar
     if state.dragging then
         if mtype == 0 then
@@ -490,6 +510,7 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
             return true
         elseif mtype == 2 then
             state.dragging = false
+            state.mouse_captured = false
             config.save(settings)
             return true
         end
@@ -588,6 +609,15 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
             build_dropdown()
             return true
         end
+    end
+
+    -- A captured press: swallow its movement and release wherever they land,
+    -- even if our dropdown has already closed out from under the cursor.
+    if state.mouse_captured then
+        if mtype == 2 or mtype == 4 then    -- left/right button up ends capture
+            state.mouse_captured = false
+        end
+        return true
     end
 
     -- Swallow every remaining event (move, button up/down, right-click, scroll)
