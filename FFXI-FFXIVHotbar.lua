@@ -57,6 +57,11 @@ local EDIT_H       = 80            -- edit panel height (header + button row + p
 local DROPDOWN_W   = 280
 local DROPDOWN_ROW = 18
 local DROPDOWN_MAX = 18
+local ICON_IMG     = 34            -- thumbnail size in the icon grid
+local ICON_CELL    = 40            -- grid cell (thumb + padding)
+local ICON_COLS    = 8
+local ICON_ROWS    = 6             -- visible rows before scrolling
+local ICON_CATS    = { 'Custom', 'spells', 'abilities', 'weapons', 'items' }
 
 -- Color tuples are { alpha, red, green, blue }, alpha 0-255 (255 = opaque).
 -- Panel fills sit at ~250 so the game world doesn't bleed through the editor.
@@ -112,9 +117,11 @@ local state = {
     grid          = nil,        -- 3 × 12 grid of slot records
     selected_id   = nil,        -- 'battle X Y' of slot being edited
     edit          = nil,        -- working copy of the slot being edited
-    picker        = nil,        -- which dropdown is open: 'cmd' | 'action' | 'target'
+    picker        = nil,        -- which picker is open: 'cmd' | 'action' | 'target' | 'icon'
     picker_scroll = 0,
     picker_filter = '',
+    icon_cat      = 'Custom',   -- active tab in the icon grid
+    icon_scroll   = 0,          -- icon grid scroll, in rows
     last_error    = nil,
     dragging      = false,
     drag_dx       = 0,
@@ -243,19 +250,6 @@ local function build_dropdown()
         for _, t in ipairs(actions.TARGETS) do
             table.insert(items, { display = t, value = t })
         end
-    elseif state.picker == 'icon' then
-        -- Custom icons (your images/icons/custom/ files) plus the bundled
-        -- spells/abilities/weapons/items sets, each with a thumbnail. The
-        -- chosen value is written to the slot's 6th (icon) field; '(auto)'
-        -- clears it so XIVHotbar2 falls back to its default resolution.
-        items = { { display = '(auto — default icon)', value = '' } }
-        for _, ic in ipairs(icons.list()) do
-            table.insert(items, {
-                display   = ic.label,
-                value     = ic.value,
-                icon_path = ic.path,
-            })
-        end
     elseif state.picker == 'action' then
         -- Only list actions matching the chosen Cmd, so a 'ja' slot shows job
         -- abilities rather than every spell/WS/item. With no Cmd set yet, show
@@ -309,8 +303,7 @@ local function build_dropdown()
     local anchor
     if state.picker == 'cmd'        then anchor = ui.rects.btn_pick_cmd
     elseif state.picker == 'action' then anchor = ui.rects.btn_pick_action
-    elseif state.picker == 'target' then anchor = ui.rects.btn_pick_target
-    elseif state.picker == 'icon'   then anchor = ui.rects.btn_pick_icon end
+    elseif state.picker == 'target' then anchor = ui.rects.btn_pick_target end
 
     local h = math.min(#items, DROPDOWN_MAX) * DROPDOWN_ROW + 4
     if h < 24 then h = 24 end
@@ -355,15 +348,7 @@ local function build_dropdown()
         local row_y = dy + 2 + (i - first) * DROPDOWN_ROW
         local cell_bg = make_bg(dx + 2, row_y, DROPDOWN_W - 4, DROPDOWN_ROW - 1, C_DROP_ROW_OFF)
         show(cell_bg)
-        local text_x = dx + 6
-        if items[i].icon_path then
-            local sz = DROPDOWN_ROW - 3
-            local thumb = make_icon(items[i].icon_path, dx + 3, row_y, sz)
-            show(thumb)
-            ui.drop['ic_' .. i] = thumb
-            text_x = dx + 3 + sz + 5
-        end
-        local cell_tx = make_text(items[i].display, text_x, row_y + 2,
+        local cell_tx = make_text(items[i].display, dx + 6, row_y + 2,
             C_DROP_TXT_OFF, 10, false)
         show(cell_tx)
         ui.drop['bg_' .. i]  = cell_bg
@@ -372,6 +357,108 @@ local function build_dropdown()
             x = dx + 2, y = row_y, w = DROPDOWN_W - 4, h = DROPDOWN_ROW - 1,
             type = 'drop_row', item = items[i],
         }
+    end
+end
+
+-- The icon picker uses a thumbnail GRID with category tabs rather than the
+-- 1-column list — far easier to scan a few hundred icons. Cells reuse the
+-- 'drop_row' rect type so the existing click handler applies them.
+local function build_icon_grid()
+    for _, e in pairs(ui.drop) do destroy(e) end
+    ui.drop = {}
+    for k, r in pairs(ui.rects) do
+        if r.type == 'drop_row' or r.type == 'icon_tab' then ui.rects[k] = nil end
+    end
+    state.dropdown_rect = nil
+    if state.picker ~= 'icon' then return end
+
+    local cat = state.icon_cat or 'Custom'
+    local items = {}
+    for _, ic in ipairs(icons.list()) do
+        if ic.category == cat then table.insert(items, ic) end
+    end
+
+    local pad, tab_h, name_h = 6, 20, 16
+    local grid_w  = ICON_COLS * ICON_CELL
+    local grid_h  = ICON_ROWS * ICON_CELL
+    local panel_w = grid_w + pad * 2
+    local panel_h = tab_h + name_h + grid_h + pad * 2
+
+    -- Anchor under the Icon button; flip up / clamp so it stays on screen.
+    local anchor = ui.rects.btn_pick_icon
+    local gx = anchor and anchor.x or (settings.pos.x + 30)
+    local gy = anchor and (anchor.y + anchor.h + 2) or (settings.pos.y + 200)
+    local sw, sh = 0, 0
+    if windower.get_windower_settings then
+        local ws = windower.get_windower_settings()
+        sw = ws and (ws.ui_x_res or ws.x_res) or 0
+        sh = ws and (ws.ui_y_res or ws.y_res) or 0
+    end
+    if sh > 0 and gy + panel_h > sh and anchor then gy = math.max(0, anchor.y - panel_h - 2) end
+    if sw > 0 and gx + panel_w > sw then gx = math.max(0, sw - panel_w) end
+    state.dropdown_rect = { x = gx, y = gy, w = panel_w, h = panel_h }
+
+    ui.drop.bg = make_bg(gx, gy, panel_w, panel_h, C_DROP_BG)
+    show(ui.drop.bg)
+
+    -- Category tabs (last one clears the icon).
+    local tabs = {
+        { cat = 'Custom',    label = 'Custom' },
+        { cat = 'spells',    label = 'Spells' },
+        { cat = 'abilities', label = 'Abil'   },
+        { cat = 'weapons',   label = 'Weap'   },
+        { cat = 'items',     label = 'Items'  },
+        { cat = '__clear__', label = 'Auto'   },
+    }
+    local tab_w = panel_w / #tabs
+    for i, t in ipairs(tabs) do
+        local tx  = gx + (i - 1) * tab_w
+        local on  = (t.cat == cat)
+        local tbg = make_bg(tx + 1, gy + 1, tab_w - 2, tab_h - 1,
+            on and C_DROP_ROW_ON or C_DROP_ROW_OFF)
+        show(tbg); ui.drop['tab_bg_' .. i] = tbg
+        local tlb = make_text(t.label, tx + 6, gy + 4,
+            on and C_DROP_TXT_ON or C_DROP_TXT_OFF, 9, on)
+        show(tlb); ui.drop['tab_tx_' .. i] = tlb
+        ui.rects['icon_tab_' .. i] = { x = tx, y = gy, w = tab_w, h = tab_h,
+            type = 'icon_tab', cat = t.cat }
+    end
+
+    -- Header: category, count, current selection.
+    local cur = (state.edit and state.edit.icon ~= '' and state.edit.icon) or 'auto'
+    ui.drop.hdr = make_text(('%s  ·  %d  ·  current: %s'):format(cat, #items, cur),
+        gx + pad, gy + tab_h + 1, C_HINT, 9)
+    show(ui.drop.hdr)
+
+    local total_rows = math.ceil(#items / ICON_COLS)
+    local max_row = math.max(0, total_rows - ICON_ROWS)
+    if (state.icon_scroll or 0) > max_row then state.icon_scroll = max_row end
+    local scroll = state.icon_scroll or 0
+
+    local grid_y0 = gy + tab_h + name_h
+    if #items == 0 then
+        local msg = (cat == 'Custom')
+            and '(no custom icons — drop PNGs in images/icons/custom/)'
+            or  '(none found)'
+        ui.drop.empty = make_text(msg, gx + pad, grid_y0 + 4, C_HINT, 10)
+        show(ui.drop.empty)
+        return
+    end
+    local first = scroll * ICON_COLS + 1
+    local last  = math.min(#items, first + ICON_COLS * ICON_ROWS - 1)
+    local off   = math.floor((ICON_CELL - ICON_IMG) / 2)
+    for idx = first, last do
+        local n  = idx - first
+        local cx = gx + pad + (n % ICON_COLS) * ICON_CELL
+        local cy = grid_y0 + math.floor(n / ICON_COLS) * ICON_CELL
+        if state.edit and state.edit.icon == items[idx].value then
+            local ring = make_bg(cx, cy, ICON_CELL - 2, ICON_CELL - 2, C_SEL_RING)
+            show(ring); ui.drop['ring_' .. idx] = ring
+        end
+        local thumb = make_icon(items[idx].path, cx + off, cy + off, ICON_IMG)
+        show(thumb); ui.drop['cell_' .. idx] = thumb
+        ui.rects['drop_' .. idx] = { x = cx, y = cy, w = ICON_CELL, h = ICON_CELL,
+            type = 'drop_row', item = items[idx] }
     end
 end
 
@@ -554,8 +641,9 @@ local function build_window()
         end
     end
 
-    -- Dropdown last so it draws on top
-    if state.picker then build_dropdown() end
+    -- Picker last so it draws on top
+    if state.picker == 'icon' then build_icon_grid()
+    elseif state.picker then build_dropdown() end
 end
 
 -- ============================================================================
@@ -653,6 +741,22 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
         -- when the list is scrolled they're keyed by absolute item index (not
         -- 1..DROPDOWN_MAX), so a fixed-range loop missed every scrolled row.
         if state.picker then
+            -- Icon-grid category tabs (the last tab clears the icon)
+            if state.picker == 'icon' then
+                for _, r in pairs(ui.rects) do
+                    if r.type == 'icon_tab' and in_rect(x, y, r) then
+                        if r.cat == '__clear__' then
+                            state.edit.icon = ''
+                            state.picker = nil
+                        else
+                            state.icon_cat = r.cat
+                            state.icon_scroll = 0
+                        end
+                        build_window()
+                        return true
+                    end
+                end
+            end
             for _, r in pairs(ui.rects) do
                 if r.type == 'drop_row' and in_rect(x, y, r) then
                     -- Apply pick to the edit copy
@@ -715,7 +819,12 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
                 elseif name == 'pick_target' then
                     state.picker = 'target'; state.picker_scroll = 0; build_window()
                 elseif name == 'pick_icon' then
-                    state.picker = 'icon';   state.picker_scroll = 0; build_window()
+                    state.picker = 'icon'
+                    state.icon_scroll = 0
+                    -- Jump to the icon set matching the slot's command type.
+                    state.icon_cat = ({ ma = 'spells', ja = 'abilities',
+                        ws = 'weapons', item = 'items' })[state.edit.cmd] or 'Custom'
+                    build_window()
                 end
                 return true
             end
@@ -742,7 +851,11 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
             end
         end
     elseif mtype == 10 then  -- scroll wheel
-        if state.picker then
+        if state.picker == 'icon' then
+            state.icon_scroll = math.max(0, (state.icon_scroll or 0) - (delta or 0))
+            build_icon_grid()
+            return true
+        elseif state.picker then
             state.picker_scroll = math.max(0, state.picker_scroll - (delta or 0) * DROPDOWN_ROW)
             build_dropdown()
             return true
