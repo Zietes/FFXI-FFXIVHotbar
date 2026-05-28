@@ -87,6 +87,23 @@ and choose your macro by name — its name becomes the slot label.
 > correctly (`//input /ma "Sneak" <me>`). Steps without a leading slash are
 > left as-is and run as Windower commands (e.g. `gs c ...`).
 
+### Icons
+
+Some actions have no matching icon in XIVHotbar2 and show as blank white
+boxes (geomancy spells are a common case). Click **`Icon ▾`** in the edit
+panel to assign one. The picker shows thumbnails of:
+
+- your own icons in `XIVHotbar2/images/icons/custom/` (PNG; subfolders are
+  fine — drop in any art you like), and
+- XIVHotbar2's bundled `spells` / `abilities` / `weapons` / `items` sets, so
+  you can reuse an existing icon without copying files.
+
+Pick one to write it to the slot's 6th (icon) field; a live preview shows
+next to the buttons. Choose **(auto)** to clear it and let XIVHotbar2
+resolve the default again. Custom icons resolve to
+`images/icons/custom/<name>.png`; bundled ones are stored as
+`../spells/<id>` etc.
+
 ## Commands
 
 | Command | What |

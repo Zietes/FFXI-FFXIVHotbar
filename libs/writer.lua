@@ -67,7 +67,7 @@ local function q(s)
 end
 
 -- Serialize a slot record back to its `{...}` line form. fields_count
--- controls whether we emit 5 or 6 fields (6 only when type_hint is set).
+-- controls whether we emit 5 or 6 fields (6 only when a custom icon is set).
 local function serialize_slot(slot)
     local parts = {
         "'" .. q(slot.slot_id) .. "'",
@@ -76,8 +76,8 @@ local function serialize_slot(slot)
         "'" .. q(slot.target or '') .. "'",
         "'" .. q(slot.label or '') .. "'",
     }
-    if slot.type_hint and slot.type_hint ~= '' then
-        table.insert(parts, "'" .. q(slot.type_hint) .. "'")
+    if slot.icon and slot.icon ~= '' then
+        table.insert(parts, "'" .. q(slot.icon) .. "'")
     end
     return '{' .. table.concat(parts, ', ') .. '}'
 end

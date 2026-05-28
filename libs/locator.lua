@@ -54,6 +54,12 @@ end
 
 function locator.data_dir()    return XH_DATA_DIR     end
 function locator.char_dir(p)   return XH_DATA_DIR .. (p or '?') .. SEP end
+function locator.sep()         return SEP             end
+
+-- XIVHotbar2's icon root: addons/XIVHotbar2/images/icons/
+function locator.icons_dir()
+    return addons_root .. 'XIVHotbar2' .. SEP .. 'images' .. SEP .. 'icons' .. SEP
+end
 
 -- Diagnostic: list every file we would try, with ✓/✗ for whether it exists.
 function locator.list_candidates(player, job)

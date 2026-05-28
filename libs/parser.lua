@@ -16,13 +16,14 @@ Each entry is a 5- or 6-element table:
   [3] action       spell / ability / item / raw input
   [4] target       'me' | 't' | 'stpc' | 'stnpc' | 'stal' | 'stpt' | ''
   [5] label        the short text shown on the hotbar icon
-  [6] type_hint    optional — 'item', sometimes added for macro lines
+  [6] icon         optional custom icon, resolved by XIVHotbar2 as
+                   images/icons/custom/<icon>.png
 
 Commented-out lines (`--{ ... }`) are recognized so the empty-slot
 placeholders the addon expects keep their line ordering.
 
 We do NOT execute the file — purely text parsing. Returns:
-    { slots = { [slot_id] = { hotbar, slot, cmd, action, target, label, type_hint, commented, line } },
+    { slots = { [slot_id] = { hotbar, slot, cmd, action, target, label, icon, commented, line } },
       raw   = "<entire file text>" }
 ]]
 
@@ -119,7 +120,7 @@ function parser.parse(src)
                                 action    = fields[3] or '',
                                 target    = fields[4] or '',
                                 label     = fields[5] or '',
-                                type_hint = fields[6] or '',
+                                icon      = fields[6] or '',
                                 commented = commented,
                                 line      = line_num,
                             }

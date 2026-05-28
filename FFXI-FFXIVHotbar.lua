@@ -25,6 +25,7 @@ local writer   = require('libs/writer')
 local locator  = require('libs/locator')
 local actions  = require('libs/actions')
 local macros   = require('libs/macros')
+local icons    = require('libs/icons')
 
 -- ============================================================================
 -- Settings
@@ -148,6 +149,20 @@ local function make_text(content, x, y, c, size, bold)
     return t
 end
 
+-- Image element backed by a texture file (icon previews / picker thumbnails).
+-- Tinted white so the PNG shows untouched. Path is set via :path() like
+-- XIVHotbar2 does, guarded in case the element lacks the method.
+local function make_icon(path, x, y, sz)
+    local img = images.new({
+        color = { alpha = 255, red = 255, green = 255, blue = 255 },
+        pos   = { x = x, y = y },
+        size  = { width = sz, height = sz },
+        draggable = false,
+    })
+    if img.path then img:path(path) end
+    return img
+end
+
 local function show(el)    if el and el.show then el:show() end end
 local function destroy(el)
     if not el then return end
@@ -228,6 +243,19 @@ local function build_dropdown()
         for _, t in ipairs(actions.TARGETS) do
             table.insert(items, { display = t, value = t })
         end
+    elseif state.picker == 'icon' then
+        -- Custom icons (your images/icons/custom/ files) plus the bundled
+        -- spells/abilities/weapons/items sets, each with a thumbnail. The
+        -- chosen value is written to the slot's 6th (icon) field; '(auto)'
+        -- clears it so XIVHotbar2 falls back to its default resolution.
+        items = { { display = '(auto — default icon)', value = '' } }
+        for _, ic in ipairs(icons.list()) do
+            table.insert(items, {
+                display   = ic.label,
+                value     = ic.value,
+                icon_path = ic.path,
+            })
+        end
     elseif state.picker == 'action' then
         -- Only list actions matching the chosen Cmd, so a 'ja' slot shows job
         -- abilities rather than every spell/WS/item. With no Cmd set yet, show
@@ -281,7 +309,8 @@ local function build_dropdown()
     local anchor
     if state.picker == 'cmd'        then anchor = ui.rects.btn_pick_cmd
     elseif state.picker == 'action' then anchor = ui.rects.btn_pick_action
-    elseif state.picker == 'target' then anchor = ui.rects.btn_pick_target end
+    elseif state.picker == 'target' then anchor = ui.rects.btn_pick_target
+    elseif state.picker == 'icon'   then anchor = ui.rects.btn_pick_icon end
 
     local h = math.min(#items, DROPDOWN_MAX) * DROPDOWN_ROW + 4
     if h < 24 then h = 24 end
@@ -326,7 +355,15 @@ local function build_dropdown()
         local row_y = dy + 2 + (i - first) * DROPDOWN_ROW
         local cell_bg = make_bg(dx + 2, row_y, DROPDOWN_W - 4, DROPDOWN_ROW - 1, C_DROP_ROW_OFF)
         show(cell_bg)
-        local cell_tx = make_text(items[i].display, dx + 6, row_y + 2,
+        local text_x = dx + 6
+        if items[i].icon_path then
+            local sz = DROPDOWN_ROW - 3
+            local thumb = make_icon(items[i].icon_path, dx + 3, row_y, sz)
+            show(thumb)
+            ui.drop['ic_' .. i] = thumb
+            text_x = dx + 3 + sz + 5
+        end
+        local cell_tx = make_text(items[i].display, text_x, row_y + 2,
             C_DROP_TXT_OFF, 10, false)
         show(cell_tx)
         ui.drop['bg_' .. i]  = cell_bg
@@ -472,10 +509,12 @@ local function build_window()
             ex + 8, ey + 7, C_HINT, 10, true)
         show(ui.el.edit_hdr)
 
-        local prev = ('cmd [%s]    action [%s]    target [%s]'):format(
-            e.cmd ~= ''    and e.cmd    or '–',
-            e.action ~= '' and e.action or '–',
-            e.target ~= '' and e.target or '–')
+        local act = e.action ~= '' and e.action or '–'
+        if #act > 22 then act = act:sub(1, 21) .. '+' end
+        local prev = ('cmd [%s]   action [%s]   target [%s]   icon [%s]'):format(
+            e.cmd ~= ''    and e.cmd    or '–', act,
+            e.target ~= '' and e.target or '–',
+            e.icon ~= ''   and e.icon   or 'auto')
         ui.el.edit_prev = make_text(prev, ex + 210, ey + 7, C_LABEL_TXT, 10, false)
         show(ui.el.edit_prev)
 
@@ -483,15 +522,16 @@ local function build_window()
         local btn_y = ey + 30
         local btn_h, btn_w = 24, 86
         local btns = {
-            { name = 'pick_cmd',    label = 'Cmd  ▾',   x = ex + 8,       type = 'pick_cmd',    color = C_BTN_NEUTRAL },
-            { name = 'pick_action', label = 'Action ▾', x = ex + 8 + 96,  type = 'pick_action', color = C_BTN_NEUTRAL },
-            { name = 'pick_target', label = 'Target ▾', x = ex + 8 + 192, type = 'pick_target', color = C_BTN_NEUTRAL },
-            { name = 'save',        label = 'Save',     x = ex + 8 + 312, type = 'save',        color = C_BTN_SAVE   },
-            { name = 'cancel',      label = 'Cancel',   x = ex + 8 + 404, type = 'cancel',      color = C_BTN_CANCEL },
-            { name = 'clear',       label = 'Clear',    x = ex + 8 + 496, type = 'clear',       color = C_BTN_CANCEL },
+            { name = 'pick_cmd',    label = 'Cmd  ▾',   x = ex + 8,       type = 'pick_cmd'    },
+            { name = 'pick_action', label = 'Action ▾', x = ex + 8 + 96,  type = 'pick_action' },
+            { name = 'pick_target', label = 'Target ▾', x = ex + 8 + 192, type = 'pick_target' },
+            { name = 'pick_icon',   label = 'Icon ▾',   x = ex + 8 + 288, type = 'pick_icon'   },
+            { name = 'save',        label = 'Save',     x = ex + 8 + 392, type = 'save',   color = C_BTN_SAVE   },
+            { name = 'cancel',      label = 'Cancel',   x = ex + 8 + 484, type = 'cancel', color = C_BTN_CANCEL },
+            { name = 'clear',       label = 'Clear',    x = ex + 8 + 576, type = 'clear',  color = C_BTN_CANCEL },
         }
         for _, b in ipairs(btns) do
-            local bg = make_bg(b.x, btn_y, btn_w, btn_h, b.color)
+            local bg = make_bg(b.x, btn_y, btn_w, btn_h, b.color or C_BTN_NEUTRAL)
             show(bg)
             local tx = make_text(b.label, b.x + 8, btn_y + 5, C_BTN_TXT, 10, true)
             show(tx)
@@ -500,6 +540,17 @@ local function build_window()
             ui.rects['btn_' .. b.name] = {
                 x = b.x, y = btn_y, w = btn_w, h = btn_h, type = b.type,
             }
+        end
+
+        -- Live preview of the chosen icon (or a hint when on auto).
+        local px = ex + 8 + 576 + btn_w + 16
+        local prev_path = icons.resolve(e.icon)
+        if prev_path then
+            ui.el.icon_prev = make_icon(prev_path, px, btn_y - 2, btn_h + 4)
+            show(ui.el.icon_prev)
+        else
+            ui.el.icon_prev = make_text('icon: auto', px, btn_y + 5, C_HINT, 9, false)
+            show(ui.el.icon_prev)
         end
     end
 
@@ -609,6 +660,8 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
                         state.edit.cmd = r.item.value
                     elseif state.picker == 'target' then
                         state.edit.target = r.item.value
+                    elseif state.picker == 'icon' then
+                        state.edit.icon = r.item.value
                     elseif state.picker == 'action' then
                         state.edit.action = r.item.value
                         if r.item.cmd_hint    then state.edit.cmd    = r.item.cmd_hint    end
@@ -643,7 +696,7 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
         end
 
         -- Edit-panel buttons
-        for _, name in ipairs({'pick_cmd','pick_action','pick_target','save','cancel','clear'}) do
+        for _, name in ipairs({'pick_cmd','pick_action','pick_target','pick_icon','save','cancel','clear'}) do
             if in_rect(x, y, ui.rects['btn_' .. name]) then
                 if name == 'save' then
                     save_edit()
@@ -653,13 +706,16 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
                 elseif name == 'clear' then
                     state.edit.cmd, state.edit.action = '', ''
                     state.edit.target, state.edit.label = '', ''
+                    state.edit.icon = ''
                     build_window()
                 elseif name == 'pick_cmd' then
-                    state.picker = 'cmd';   state.picker_scroll = 0; build_window()
+                    state.picker = 'cmd';    state.picker_scroll = 0; build_window()
                 elseif name == 'pick_action' then
                     state.picker = 'action'; state.picker_scroll = 0; build_window()
                 elseif name == 'pick_target' then
                     state.picker = 'target'; state.picker_scroll = 0; build_window()
+                elseif name == 'pick_icon' then
+                    state.picker = 'icon';   state.picker_scroll = 0; build_window()
                 end
                 return true
             end
@@ -678,7 +734,7 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
                     action   = rec and rec.action or '',
                     target   = rec and rec.target or '',
                     label    = rec and rec.label or '',
-                    type_hint= rec and rec.type_hint or '',
+                    icon     = rec and rec.icon or '',
                 }
                 state.picker = nil
                 build_window()
@@ -736,7 +792,7 @@ windower.register_event('addon command', function(...)
     elseif cmd == 'hide' then
         hide_window()
     elseif cmd == 'reload' then
-        reload_file(); build_window()
+        icons.reload(); reload_file(); build_window()
     elseif cmd == 'where' then
         local p = windower.ffxi.get_player()
         windower.add_to_chat(207, 'FFXI-FFXIVHotbar: data dir = ' .. locator.data_dir())
