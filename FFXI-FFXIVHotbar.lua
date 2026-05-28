@@ -237,7 +237,7 @@ local function build_dropdown()
                 if filt == '' or m.name:lower():find(filt, 1, true) then
                     table.insert(items, {
                         display     = 'Macro  ' .. m.name,
-                        value       = m.body,
+                        value       = macros.to_command(m.body),
                         cmd_hint    = 'macro',
                         target_hint = '',
                         label_hint  = m.name:sub(1, 8),

@@ -67,18 +67,25 @@ FFXI-FFXIVHotbar/data/macros.txt
 ```
 
 One macro per line, `Name = command body`. Lines starting with `#` or
-`--` are comments. Multi-step macros separate commands the way XIVHotbar2
-expects (`;`):
+`--` are comments. Write normal game commands (keep the leading slash).
+For multi-step macros, separate commands with `;` and use `wait N` for a
+delay:
 
 ```
 Sneak = /ma "Sneak" <me>
 Pull  = /p Pulling <t> ; /ws "Combo" <t>
+Buffs = /ma "Protect" <me> ; wait 5 ; /ma "Shell" <me>
 ```
 
 Run `//xh macros` to see the file path and everything currently defined.
 After editing the file, pick `macro` as the Cmd, open the Action picker,
-and choose your macro by name — its body goes into the slot and its name
-becomes the slot label.
+and choose your macro by name — its name becomes the slot label.
+
+> **Why the slot shows `input /ma ...`:** XIVHotbar2 runs a `macro` slot as
+> `//<action>`, so a bare `/ma "Sneak" <me>` would become `///ma ...` and
+> fail. The editor wraps each game command as `input /...` so it executes
+> correctly (`//input /ma "Sneak" <me>`). Steps without a leading slash are
+> left as-is and run as Windower commands (e.g. `gs c ...`).
 
 ## Commands
 

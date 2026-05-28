@@ -24,7 +24,14 @@ local SAMPLE = [[
 # FFXI-FFXIVHotbar macro library
 # One macro per line:   Name = command body
 # Lines starting with '#' or '--' are ignored.
-# Multi-step macros: separate the commands the way XIVHotbar2 expects (';').
+#
+# Write normal game commands (keep the leading slash). For multi-step
+# macros, separate commands with ';' and use 'wait N' for a delay:
+#
+#   Buffs = /ma "Protect" <me> ; wait 5 ; /ma "Shell" <me>
+#
+# Advanced: a step WITHOUT a leading slash runs as a Windower command
+# (e.g. gs c ...), so you can mix those in too.
 #
 # Examples (edit or delete these):
 Sneak = /ma "Sneak" <me>
@@ -52,6 +59,37 @@ function macros.ensure()
     local w = io.open(path, 'w')
     if w then w:write(SAMPLE); w:close() end
     return path
+end
+
+-- Split a macro body on ';' into trimmed, non-empty steps.
+local function split_steps(body)
+    local steps = {}
+    local start = 1
+    while true do
+        local p = body:find(';', start, true)
+        local chunk = p and body:sub(start, p - 1) or body:sub(start)
+        chunk = chunk:gsub('^%s+', ''):gsub('%s+$', '')
+        if chunk ~= '' then table.insert(steps, chunk) end
+        if not p then break end
+        start = p + 1
+    end
+    return steps
+end
+
+-- Convert a human-written macro body into the string to store in a 'macro'
+-- slot. XIVHotbar2 runs a macro action as ('//' .. action), so a raw game
+-- command like `/ma "Sneak" <me>` would become `///ma ...` and silently fail.
+-- We wrap each game command (a step starting with '/') as `input /...` so it
+-- becomes `//input /ma "Sneak" <me>` and actually types into the game. Steps
+-- that are already Windower commands (gs, send, wait, input, ...) are left
+-- alone, and multiple steps stay ';'-separated so Windower runs them in order.
+function macros.to_command(body)
+    local out = {}
+    for _, s in ipairs(split_steps(body or '')) do
+        if s:sub(1, 1) == '/' then s = 'input ' .. s end
+        table.insert(out, s)
+    end
+    return table.concat(out, '; ')
 end
 
 -- Read + parse the macro file fresh (cheap, only called when the macro
