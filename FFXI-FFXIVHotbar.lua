@@ -208,6 +208,12 @@ local function build_dropdown()
     -- Tear down any existing dropdown
     for _, e in pairs(ui.drop) do destroy(e) end
     ui.drop = {}
+    -- Drop the previous frame's row hit-rects too (scroll rebuilds the
+    -- dropdown without a full window teardown, so stale rects would linger
+    -- in ui.rects and could be matched ahead of the current rows).
+    for k, r in pairs(ui.rects) do
+        if r.type == 'drop_row' then ui.rects[k] = nil end
+    end
     state.dropdown_rect = nil
     if not state.picker then return end
 
@@ -301,7 +307,10 @@ local function build_dropdown()
     ui.drop.bg = make_bg(dx, dy, DROPDOWN_W, h, C_DROP_BG)
     show(ui.drop.bg)
 
-    -- visible window of items (scroll)
+    -- visible window of items (scroll). Clamp first so you can't run off the
+    -- end of a long list into a blank dropdown.
+    local max_scroll = math.max(0, #items - DROPDOWN_MAX) * DROPDOWN_ROW
+    if state.picker_scroll > max_scroll then state.picker_scroll = max_scroll end
     local first = math.floor(state.picker_scroll / DROPDOWN_ROW) + 1
     local last  = math.min(#items, first + DROPDOWN_MAX - 1)
     if #items == 0 then
@@ -589,11 +598,12 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     end
 
     if mtype == 1 then       -- left button down
-        -- Picker dropdown rows take precedence
+        -- Picker dropdown rows take precedence. Iterate the actual row rects:
+        -- when the list is scrolled they're keyed by absolute item index (not
+        -- 1..DROPDOWN_MAX), so a fixed-range loop missed every scrolled row.
         if state.picker then
-            for i = 1, DROPDOWN_MAX do
-                local r = ui.rects['drop_' .. i]
-                if in_rect(x, y, r) then
+            for _, r in pairs(ui.rects) do
+                if r.type == 'drop_row' and in_rect(x, y, r) then
                     -- Apply pick to the edit copy
                     if state.picker == 'cmd' then
                         state.edit.cmd = r.item.value
