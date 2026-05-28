@@ -21,15 +21,60 @@ local res = require('resources')
 -- ============================================================================
 -- XIVHotbar2's `target` field is one of:
 --   me, t, stpc, stnpc, stal, stpt, bt, p0..p5, p1..p5
--- Most spells map cleanly from spell.targets bitfield.
+--
+-- Windower's res.spells stores `spell.targets` as a BITFIELD NUMBER, not
+-- a string. Older docs sometimes describe it as a string, so we handle
+-- both shapes defensively. The bits are:
+--
+--   0x01 / 1   Self
+--   0x02 / 2   Player    (other PC, sub-target pick)
+--   0x04 / 4   Party
+--   0x08 / 8   Ally      (alliance)
+--   0x10 / 16  NPC
+--   0x20 / 32  Enemy
+--
+-- Example values you'll see in res.spells: Cure=63 (every bit), Curaga=5
+-- (self+party), Stone=32 (enemy only), Stoneskin=1 (self only),
+-- Raise=157 (self+party+ally+npc+0x80=corpse).
+--
+-- Calling :lower() on a number (the original implementation) crashed the
+-- spell-list build and broke every Action dropdown — that's the fix here.
 
-local function infer_default_target(targets_str)
-    if not targets_str then return 't' end
-    local s = (targets_str):lower()
-    if s:find('self', 1, true) then return 'me' end
-    if s:find('enemy', 1, true) then return 'stnpc' end
-    if s:find('player', 1, true) then return 'stpc' end
-    if s:find('party', 1, true) then return 'stpt' end
+local function infer_default_target(targets)
+    if not targets then return 't' end
+
+    -- Tolerate the legacy string form.
+    if type(targets) == 'string' then
+        local s = targets:lower()
+        if s:find('self', 1, true) then return 'me' end
+        if s:find('enemy', 1, true) then return 'stnpc' end
+        if s:find('player', 1, true) then return 'stpc' end
+        if s:find('party', 1, true) then return 'stpt' end
+        return 't'
+    end
+
+    if type(targets) ~= 'number' then return 't' end
+
+    -- Bitfield path. `bit` is the BitOp library Windower bundles.
+    local has = function(mask) return bit.band(targets, mask) ~= 0 end
+
+    -- Pure self spells (Stoneskin / Cocoon / Spectral Jig)
+    if has(1) and not has(2) and not has(4) and not has(32) then
+        return 'me'
+    end
+    -- Enemy-only attack spells (Stone, Fire, Silence, etc.)
+    if has(32) and not has(1) and not has(2) and not has(4) then
+        return 'stnpc'
+    end
+    -- Single-target friendly cast (Cure family — has player bit set).
+    -- Prefer stpc so XIVHotbar2 will sub-target a player to heal.
+    if has(2) then return 'stpc' end
+    -- Party-wide (Curaga, Protectra, Phalanx II)
+    if has(4) then return 'stpt' end
+    -- Self-capable fallback
+    if has(1) then return 'me' end
+    -- Enemy fallback
+    if has(32) then return 'stnpc' end
     return 't'
 end
 
